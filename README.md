@@ -38,6 +38,7 @@ Flags:
 | `--base-url` | OpenAI-compatible base URL (default: `http://localhost:11434/v1`) |
 | `--api-key` | API key (default: `ollama`; ignored by most local servers) |
 | `--yolo` | Skip confirmation prompts on writes/edits/shell |
+| `--debug` | Dump full messages/tools/tool_calls for each model request/response |
 
 Type `/exit` or `/quit` (or Ctrl-C) to leave the session.
 

@@ -19,9 +19,13 @@ from openai.types.chat.chat_completion_message_function_tool_call_param import (
 from rich.console import Console
 
 from coding_agent.config import MAX_TOOL_ITERATIONS
+from coding_agent.debug import DebugTracer
 from coding_agent.history import trim_history
-from coding_agent.prompts import SYSTEM_PROMPT
-from coding_agent.tool_parse import extract_tool_calls_from_text
+from coding_agent.prompts import CONTINUE_WITH_TOOL_PROMPT, SYSTEM_PROMPT
+from coding_agent.tool_parse import (
+    extract_tool_calls_from_text,
+    looks_like_deferred_tool_use,
+)
 from coding_agent.tools import make_tool_bundle
 from coding_agent.tools.base import ApprovalGate
 from coding_agent.ui import ToolTracer, TurnClock
@@ -35,6 +39,7 @@ class Agent:
         gate: ApprovalGate,
         *,
         console: Console | None = None,
+        debug: bool = False,
         max_tool_iterations: int = MAX_TOOL_ITERATIONS,
     ) -> None:
         self.client = client
@@ -42,6 +47,7 @@ class Agent:
         self.console = console or Console()
         self.tracer = ToolTracer(self.console)
         self.clock = TurnClock(self.console)
+        self.debug = DebugTracer(self.console, enabled=debug)
         self.max_tool_iterations = max_tool_iterations
         self.tool_schemas: list[ChatCompletionToolParam]
         self.executors: dict[str, Callable[..., str]]
@@ -65,8 +71,16 @@ class Agent:
             self.clock.stop()
 
     def _run_turn_loop(self) -> str:
-        for _ in range(self.max_tool_iterations):
+        nudged = False
+        for iteration in range(self.max_tool_iterations):
             self.messages = trim_history(self.messages)
+            self.debug.request(
+                model=self.model,
+                messages=list(self.messages),
+                tools=list(self.tool_schemas),
+                tool_choice="auto",
+                iteration=iteration + 1,
+            )
             with self.clock.waiting("thinking"):
                 response = self.client.chat.completions.create(
                     model=self.model,
@@ -76,11 +90,32 @@ class Agent:
                 )
             choice = response.choices[0]
             msg = choice.message
+            self.debug.response(
+                message=msg,
+                iteration=iteration + 1,
+                finish_reason=choice.finish_reason,
+            )
 
             function_calls = self._collect_function_calls(msg)
             if not function_calls:
-                self.messages.append({"role": "assistant", "content": msg.content or ""})
-                return msg.content or ""
+                content = msg.content or ""
+                # Local models often narrate the next tool instead of calling it.
+                if (
+                    not nudged
+                    and looks_like_deferred_tool_use(content)
+                    and iteration + 1 < self.max_tool_iterations
+                ):
+                    nudged = True
+                    self.messages.append({"role": "assistant", "content": content})
+                    self.messages.append({"role": "user", "content": CONTINUE_WITH_TOOL_PROMPT})
+                    if self.debug.enabled:
+                        self.console.print(
+                            "[yellow]note:[/yellow] model deferred a tool call; nudging once"
+                        )
+                    continue
+
+                self.messages.append({"role": "assistant", "content": content})
+                return content
 
             # Prefer a short prose lead-in; hide raw JSON tool dumps from history noise.
             lead_in = (msg.content or "").strip()
@@ -129,7 +164,8 @@ class Agent:
                         },
                     }
                 )
-            return function_calls
+            if function_calls:
+                return function_calls
 
         # Local models often print a tool call as JSON text instead of tool_calls.
         content = getattr(msg, "content", None) or ""
@@ -137,7 +173,7 @@ class Agent:
             content,
             known_tools=set(self.executors),
         )
-        if recovered:
+        if recovered and self.debug.enabled:
             self.console.print(
                 "[yellow]note:[/yellow] model returned a tool call as text; "
                 "running it via fallback parser"

@@ -74,8 +74,9 @@ def build_search_tools() -> list[ToolSpec]:
             name="search_code",
             description=(
                 "Search file contents recursively for a pattern (extended regex). "
-                "Prefer a simple literal like MAX_TOOL_ITERATIONS over complex OR patterns; "
-                "you can call this tool multiple times for multiple symbols."
+                "To find a function or symbol, search for its name "
+                '(e.g. read_file or "def read_file"), not unrelated APIs. '
+                "Prefer a simple literal; call this tool multiple times for multiple symbols."
             ),
             parameters={
                 "type": "object",
