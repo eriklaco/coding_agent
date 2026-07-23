@@ -40,7 +40,43 @@ Flags:
 | `--yolo` | Skip confirmation prompts on writes/edits/shell |
 | `--debug` | Dump full messages/tools/tool_calls for each model request/response |
 
-Type `/exit` or `/quit` (or Ctrl-C) to leave the session.
+Type `/exit` or `/quit` (or Ctrl-C) to leave the session. Use ↑ / ↓ to recall
+previous prompts.
+
+## Example session
+
+Captured against a local Ollama `qwen2.5-coder:14b` (with `--yolo` so writes/shell
+would not prompt — this turn only used a read-only search):
+
+```text
+$ uv run coding-agent chat --model qwen2.5-coder:14b --yolo
+
+╭─────────────────────────────────── ready ───────────────────────────────────╮
+│ coding-agent · model=qwen2.5-coder:14b · endpoint=http://localhost:11434/v1 │
+│ --yolo enabled: writes/edits/shell run without confirmation                 │
+╰─────────────────────────────────────────────────────────────────────────────╯
+you> Find MAX_TOOL_ITERATIONS and DEFAULT_MODEL in src/coding_agent/config.py
+     by searching or reading files, then report both values. Use tools.
+⚙ search_code  pattern='MAX_TOOL_ITERATIONS|DEFAULT_MODEL' path='src/coding_agent/config.py'
+╭───────────── search_code ─────────────╮
+│ 3:MAX_TOOL_ITERATIONS = 12            │
+│ 6:DEFAULT_MODEL = "qwen2.5-coder:14b" │
+╰───────────────────────────────────────╯
+╭─────────────────────────────────── agent ────────────────────────────────────╮
+│ MAX_TOOL_ITERATIONS is set to 12 and DEFAULT_MODEL is set to                 │
+│ "qwen2.5-coder:14b".                                                         │
+╰────────────────────────────────── ⏱ 11.3s ───────────────────────────────────╯
+you> /exit
+```
+
+What happened in that turn:
+
+1. Your prompt was appended to the conversation and sent to the model with the
+   tool schemas.
+2. The model called `search_code` (shown as the collapsed `⚙` line).
+3. The tool result was fed back into the loop.
+4. The model answered in plain text; the green panel is the final reply, with
+   total wall time in the subtitle.
 
 ## Architecture
 
